@@ -1,1 +1,1 @@
-# Sclerotinia_Rhizosphere_Bacteria
+# Data and code for Sclerotinia Rhizosphere Bacteria manuscript.
