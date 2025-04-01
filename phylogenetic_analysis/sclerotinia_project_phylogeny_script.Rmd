@@ -1,0 +1,236 @@
+---
+title: "Code for running RAxML with Pseudomonas and Bacillus strains for Sclerotinia Project"
+output: html_document
+date: "2024-10-17"
+---
+
+Using RAxML version 8.2.12
+
+MANUAL - https://cme.h-its.org/exelixis/resource/download/NewManual.pdf
+
+
+#1 Before Starting
+
+Set up a new project/file space
+
+
+# 2 Aligning and trimming fastas
+##2.1 Upload data
+
+```{uploading sequence data to super computer with scp}
+#bacillus sequences together but unaligned
+scp /sclerotinia_raxml/fastas/bacillus_16s_unaligned_sequences.fasta user@login.rc.colorado.edu:/scratch/alpine/user/sclerotinia_trees/bacillus
+
+#pseudomonas sequences together but unaligned
+scp /sclerotinia_raxml/fastas/pseudomonas_16s_unaligned_sequences.fasta user@login.rc.colorado.edu:/scratch/alpine/user/sclerotinia_trees/pseudomonas
+```
+*done 31 Oct 2024*
+
+##2.2 Using MUSCLE to align the sequences
+###2.2.1 Install MUSCLE conda env to align sequences
+
+https://anaconda.org/bioconda/muscle
+*last updates Sept 2024*
+https://github.com/rcedgar/muscle ---- helpful for running muscle
+```{conda install muscle environment}
+mamba create -n muscle_env -c conda-forge -c bioconda muscle
+mamba activate muscle_env
+```
+*Done 25 Oct 2024*
+
+###2.2.2 Run MUSCLE with our data
+All of the sequence data need to be in one file
+
+```{Align sequences with muscle}
+#!/bin/bash
+#SBATCH --time=01:00:00
+#SBATCH --qos=blanca-qsmicrobes
+#SBATCH --partition=blanca-qsmicrobes
+#SBATCH --account=blanca-qsmicrobes
+#SBATCH --nodes=1
+#SBATCH --mem=2000
+#SBATCH --job-name=sequence_align
+#SBATCH --error=/scratch/alpine/user/sclerotinia_trees/raxml/loop_err_out/sequence_align.err
+#SBATCH --output=/scratch/alpine/user/sclerotinia_trees/raxml/loop_err_out/sequence_align.out
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=user@colorado.edu
+
+## first thing is to load the conda environment in the script
+module purge 
+eval "$(conda shell.bash hook)"
+conda activate muscle_env
+
+#example: muscle -align sequences.fasta -output alignment.fasta
+
+#bacillus
+muscle -align /scratch/alpine/user/sclerotinia_trees/bacillus/bacillus_16s_unaligned_sequences.fasta -output /scratch/alpine/user/sclerotinia_trees/raxml/bacillus/bacillus_16s_aligned_sequences.fasta
+
+#pseudomonas
+muscle -align /scratch/alpine/user/sclerotinia_trees/pseudomonas/pseudomonas_16s_unaligned_sequences.fasta -output /scratch/alpine/user/sclerotinia_trees/raxml/pseudomonas/pseudomonas_16s_aligned_sequences.fasta
+```
+*done 31 Oct 2024* - took like 4 minutes
+
+##2.3 Using Trimal to clean up the Multiple sequence alignment and remove spurious sequences or poorly aligned regions
+###2.3.1 Install trimal env
+
+from here https://anaconda.org/bioconda/trimal 
+using this manual/guide https://trimal.readthedocs.io/en/latest/
+
+```{installing trimal_env}
+mamba create -n trimal_env -c conda-forge -c bioconda trimal
+mamba activate trimal_env
+```
+
+###2.3.2 Using TrimAl
+
+```{trimming the multiple aligned sequence file}
+#!/bin/bash
+#SBATCH --time=04:00:00
+#SBATCH --qos=blanca-qsmicrobes
+#SBATCH --partition=blanca-qsmicrobes
+#SBATCH --account=blanca-qsmicrobes
+#SBATCH --nodes=1
+#SBATCH --mem=20g
+#SBATCH --job-name=MSA_trim
+#SBATCH --error=/scratch/alpine/user/sclerotinia_trees/raxml/loop_err_out/MSA_trim.err
+#SBATCH --output=/scratch/alpine/user/sclerotinia_trees/raxml/loop_err_out/MSA_trim.out
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=user@colorado.edu
+
+## first thing is to load the conda environment in the script
+module purge 
+eval "$(conda shell.bash hook)"
+conda activate trimal_env
+
+#example trimal -in <inputfile> -out <outputfile> -(other options)
+
+#pseudomonas
+cd /scratch/alpine/user/sclerotinia_trees/raxml/pseudomonas/
+trimal \
+-in pseudomonas_16s_aligned_sequences.fasta \
+-out pseudomonas_16s_aligned_trimmed_sequences.fasta \
+-gappyout
+
+#bacillus
+cd /scratch/alpine/user/sclerotinia_trees/raxml/bacillus/
+trimal \
+-in bacillus_16s_aligned_sequences.fasta \
+-out bacillus_16s_aligned_trimmed_sequences.fasta \
+-gappyout
+```
+*done 6 Dec 2024* - took less than a second
+
+
+#3 Phylogenetic Inference
+##3.1 install RAxML conda environment
+
+https://anaconda.org/bioconda/raxml
+Last Updated - *11 July 2024*
+
+```{making raxml conda environment}
+mamba create -n raxml_env -c conda-forge -c bioconda raxml
+mamba activate raxml_env
+```
+*done 25 Oct 2024*
+
+###3.1.1 Some notes for navigating RAxML environment
+
+MANUAL https://cme.h-its.org/exelixis/resource/download/NewManual.pdf
+
+```{raxml use notes and helpful commands}
+raxmlHPC #name of the initiate command
+raxmlHPC -h #gives options
+raxmlHPC -v #gives the version
+
+ls *exampleRun* #best way to see all files generated from a run
+```
+
+RAxML also auto assesses if a MAS file is appropriate for analysis. If it is not, an error will occur when starting a run. The output may give a description of what happened. check the manual for more info
+
+##3.2 Running the analysis
+###3.2.0 Check the alignment
+
+```{check if the alignment can be properly read by RAxML}
+#activate environment
+mamba activate raxml_env
+
+#example
+raxmlHPC \
+-f c \
+-m GTRCAT \ #can change to other substitution models but this is recommended
+-s alg \ #sequence file name
+-n TEST #output file name 
+
+#bacillus
+cd /scratch/alpine/user/sclerotinia_trees/raxml/bacillus
+raxmlHPC -f c -m GTRCAT -s bacillus_16s_aligned_trimmed_sequences.fasta -n bacillus_alignment_check.txt #cool it works
+
+#pseudomonas
+cd /scratch/alpine/user/sclerotinia_trees/raxml/pseudomonas
+raxmlHPC -f c -m GTRCAT -s pseudomonas_16s_aligned_trimmed_sequences.fasta -n pseudomonas_alignment_check.txt #cool it works
+```
+*done 6 Dec 2024*
+
+###3.2.1 A fast/easy search - check manual for more inputs/options
+
+```{Pseudomonas ML search 1000 BS}
+#!/bin/bash
+#SBATCH --time=02:00:00
+#SBATCH --qos=blanca-qsmicrobes
+#SBATCH --partition=blanca-qsmicrobes
+#SBATCH --account=blanca-qsmicrobes
+#SBATCH --nodes=1
+#SBATCH --mem=10G
+#SBATCH --job-name=1000BS
+#SBATCH --error=/scratch/alpine/user/sclerotinia_trees/raxml/loop_err_out/1000BS.err
+#SBATCH --output=/scratch/alpine/user/sclerotinia_trees/raxml/loop_err_out/1000BS.out
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=user@colorado.edu
+
+## first thing is to load the conda environment in the script
+module purge 
+eval "$(conda shell.bash hook)"
+conda activate raxml_env
+
+#pseudomonas
+cd /scratch/alpine/user/sclerotinia_trees/raxml/pseudomonas
+raxmlHPC \
+-f a \
+-x 12345 \
+-p 12345 \
+-# 1000 \
+-m GTRGAMMA \
+-s pseudomonas_16s_aligned_trimmed_sequences.fasta \
+-n pseudomonas_1000BS
+
+#bacillus
+cd /scratch/alpine/user/sclerotinia_trees/raxml/bacillus
+raxmlHPC \
+-f a \
+-x 12345 \
+-p 12345 \
+-# 1000 \
+-m GTRGAMMA \
+-s bacillus_16s_aligned_trimmed_sequences.fasta \
+-n bacillus_1000BS
+```
+*Done 6 Dec 2024*
+
+
+#4 Download and look at results
+##4.1 Get annotation files for tip labels
+
+```{awk commands for grabbing different strings}
+
+#matches ">123.1" from FASTA name to ">123.1 Genus species"
+cd /scratch/alpine/user/sclerotinia_trees/raxml/bacillus
+(echo -e "Original_Name\tModified_Name"; awk '/^>/ {sub(/^>/, "", $1); print $1 "\t" $1 "_" $2 "_" $3}' bacillus_16s_aligned_sequences.fasta) > bacillus_tips.txt
+
+cd /scratch/alpine/user/sclerotinia_trees/raxml/pseudomonas
+(echo -e "Original_Name\tModified_Name"; awk '/^>/ {sub(/^>/, "", $1); print $1 "\t" $1 "_" $2 "_" $3}' pseudomonas_16s_aligned_sequences.fasta) > pseudomonas_tips.txt
+```
+*done 6 Dec 2024*
+
+##4.2 Then download and look at the results using whatever programs you prefer. 
+
+We visualized trees using FigTree v. 1.4.4
